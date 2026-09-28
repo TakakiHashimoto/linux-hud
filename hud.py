@@ -1,8 +1,12 @@
 from dataclasses import dataclass
 from pathlib import Path
+import os
+import subprocess
+import json
 
 UPTIME_PATH = Path("/proc/uptime")
 MEMORY_PATH = Path("/proc/meminfo")
+NETWORK_INTERFACE_PATH = Path("/sys/class/net")
 
 @dataclass
 class MemoryStats:
@@ -12,6 +16,24 @@ class MemoryStats:
     usage_percent: float
     swap_total_bytes: int
     swap_used_bytes: int
+
+@dataclass
+class MachineModel:
+    hostname: str
+    kernel_release: str
+    architecture: str
+
+@dataclass
+class NetworkInterface:
+    name: str
+    mac_addr: str
+    state: str
+    mtu: int
+
+@dataclass
+class NetworkRoute:
+    interface: str
+    gateway:str
 
 def format_uptime(seconds:float) -> str:
     minutes = int(seconds) // 60
@@ -57,7 +79,28 @@ def get_memory_info() -> MemoryStats:
         
     return memory_stats
 
+def get_machine_data():
+    info = os.uname()
+    machine_info = MachineModel(hostname=info.nodename, kernel_release=info.release, architecture=info.machine)
+    return machine_info
+
+def get_network_interfaces() -> list[NetworkInterface]:
+    network_info : list[NetworkInterface] = []
+    for item in NETWORK_INTERFACE_PATH.iterdir():
+        network_interface = NetworkInterface(item.name, mac_addr=(item / "address").read_text().strip(), state=(item / "operstate").read_text().strip(), mtu=int((item / "mtu").read_text().strip()))
+        network_info.append(network_interface)
+
+    return network_info
+
+def get_network_route():
+    return
+
+
 uptime = get_uptime_seconds()
 mem_info = get_memory_info()
+machine_info = get_machine_data()
+network_interfaces = get_network_interfaces()
 print("Uptime: ", format_uptime(uptime))
 print("memory info: ", mem_info)
+print("machine info: ", machine_info)
+print("network interfaces: ", network_interfaces)
