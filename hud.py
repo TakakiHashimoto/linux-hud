@@ -8,6 +8,7 @@ import time
 UPTIME_PATH = Path("/proc/uptime")
 MEMORY_PATH = Path("/proc/meminfo")
 NETWORK_INTERFACE_PATH = Path("/sys/class/net")
+CPU_STAT_PATH = Path("/proc/stat")
 
 @dataclass
 class MemoryStats:
@@ -63,7 +64,14 @@ class SocketCounts:
     tcp_listening: int
     udp_sockets: int
 
-CPU_STAT_PATH = Path("/proc/stat")
+@dataclass
+class HudSnapshot:
+    uptime_seconds: float
+    memory: MemoryStats
+    cpu_usage_percent: float
+    network_rate: NetworkRate
+    socket_counts: SocketCounts
+
 
 def format_rate(bytes_per_second: float) -> str:
     if bytes_per_second < 1024:
@@ -191,37 +199,87 @@ def get_cpu_usage(prev:CpuCounters, current:CpuCounters):
     return total_used
 
 def get_socket_counts() -> SocketCounts:
-    argument_lists = ["ss", "-Htan"]
-    subprocess.run(argument_lists)
-    pass
+    counts = {"tcp_established" : 0, "tcp_listening" : 0, "udp_sockets" : 0}
+
+    tcp_argument_lists = ["ss", "-Htan"]
+    udp_arguments_list = ["ss", "-Huan"]
+
+    tcp_sockets = subprocess.run(tcp_argument_lists,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    udp_sockets = subprocess.run(udp_arguments_list,
+        capture_output=True,
+        text=True,
+        check=True,                         
+    )
+
+    tcp_socket_lists = tcp_sockets.stdout.splitlines()
+    udp_socket_lists = udp_sockets.stdout.splitlines()
+
+    for socket in tcp_socket_lists:
+        if not socket.strip():
+            continue
+        status = socket.split()[0]
+        if status == "LISTEN":
+            counts["tcp_listening"] += 1
+        elif status == "ESTAB":
+            counts["tcp_established"] += 1
+
+    counts["udp_sockets"] = sum(1 for line in udp_socket_lists if line.strip())
+
+    return SocketCounts(tcp_established=counts["tcp_established"], tcp_listening=counts["tcp_listening"], udp_sockets=counts["udp_sockets"])
 
 
-uptime = get_uptime_seconds()
-mem_info = get_memory_info()
 machine_info = get_machine_data()
 network_interfaces = get_network_interfaces()
 network_route = get_network_route()
 ipv4_addresses = get_ipv4_addresses(network_route.interface)
-network_counters = get_network_counters(network_route.interface)
 
-first_time = time.monotonic()
 previous_counters = get_network_counters(network_route.interface)
 previous_cpu = get_cpu_counters()
+previous_time = time.monotonic()
 
-time.sleep(1)
+while True:
+    
+    time.sleep(1)
 
-current_time = time.monotonic()
-current_counters = get_network_counters(network_route.interface)
-current_cpu = get_cpu_counters()
+    current_time = time.monotonic()
+    current_counters = get_network_counters(network_route.interface)
+    current_cpu = get_cpu_counters()
 
-elapsed_seconds = current_time - first_time
+    elapsed_seconds = current_time - previous_time
 
-network_rate = get_network_rate(
-    previous_counters,
-    current_counters,
-    elapsed_seconds,
-)
+    network_rate = get_network_rate(
+        previous_counters,
+        current_counters,
+        elapsed_seconds,
+    )
+    cpu_usage = get_cpu_usage(previous_cpu, current_cpu)
 
-cpu_usage = get_cpu_usage(previous_cpu, current_cpu)
+    uptime = get_uptime_seconds()
+    mem_info = get_memory_info()
+    socket_counts = get_socket_counts()
 
-print(cpu_usage)
+    snapshot = HudSnapshot(
+        uptime_seconds=uptime,
+        memory=mem_info,
+        cpu_usage_percent=cpu_usage,
+        network_rate=network_rate,
+        socket_counts=socket_counts,
+    )
+
+    previous_time = current_time
+    previous_counters = current_counters
+    previous_cpu = current_cpu
+
+    print(f"CPU:        {cpu_usage:.1f}%")
+    print(f"RAM:        {mem_info.usage_percent:.1f}%")
+    print(f"RX:         {format_rate(network_rate.rx_bytes_per_sec)}")
+    print(f"TX:         {format_rate(network_rate.tx_bytes_per_sec)}")
+    print(f"TCP ESTAB:  {socket_counts.tcp_established}")
+    print(f"TCP LISTEN: {socket_counts.tcp_listening}")
+    print(f"UDP:        {socket_counts.udp_sockets}")
+    print(f"Uptime:     {format_uptime(uptime)}")
+    print("------------------------------")
