@@ -3,6 +3,7 @@ from pathlib import Path
 import os
 import subprocess
 import json
+import time
 
 UPTIME_PATH = Path("/proc/uptime")
 MEMORY_PATH = Path("/proc/meminfo")
@@ -34,6 +35,25 @@ class NetworkInterface:
 class NetworkRoute:
     interface: str
     gateway:str
+
+@dataclass
+class NetworkCounters:
+    rx_bytes: int
+    tx_bytes: int
+
+@dataclass
+class NetworkRate:
+    rx_bytes_per_sec: float
+    tx_bytes_per_sec: float
+
+def format_rate(bytes_per_second: float) -> str:
+    if bytes_per_second < 1024:
+        return f"{bytes_per_second} b/s"
+    
+    if bytes_per_second < 1024 * 1024:
+        return f"{bytes_per_second / 1024} KiB/s"
+        
+    return f"{bytes_per_second / (1024 * 1024)} MiB/s"
 
 def format_uptime(seconds:float) -> str:
     minutes = int(seconds) // 60
@@ -92,15 +112,69 @@ def get_network_interfaces() -> list[NetworkInterface]:
 
     return network_info
 
-def get_network_route():
-    return
+def get_network_route() -> NetworkRoute:
+    argument_lists = ["ip", "-j", "route", "show", "default"]
+    result = subprocess.run(
+        argument_lists,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    routes = json.loads(result.stdout)
+    route = routes[0]
+    network_route = NetworkRoute(interface=route["dev"], gateway=route["gateway"])
+    return network_route
 
+def get_ipv4_addresses(interface: str) -> list[str]:
+    argument_lists = ["ip", "-j", "addr", "show", "dev", interface]
+    ipv4_addrs : list[str] = []
+    result = subprocess.run(
+        argument_lists,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    interface_info = json.loads(result.stdout)
+    for address in interface_info[0]["addr_info"]:
+        if address["family"] == "inet":
+            ipv4_addrs.append(address["local"])
+    return ipv4_addrs
+
+def get_network_counters(interface: str) -> NetworkCounters:
+    path = NETWORK_INTERFACE_PATH / interface / "statistics"
+    rx = (path / "rx_bytes").read_text().strip()
+    tx = (path / "tx_bytes").read_text().strip()
+    return NetworkCounters(rx_bytes=int(rx), tx_bytes=int(tx))
+
+def get_network_rate(previous: NetworkCounters, current: NetworkCounters, elapsed_seconds: float) -> NetworkRate:
+    rx_diff =  current.rx_bytes - previous.rx_bytes
+    tx_diff = current.tx_bytes - previous.tx_bytes
+
+    rx_rate = (rx_diff / elapsed_seconds)
+    tx_rate = (tx_diff / elapsed_seconds)
+    return NetworkRate(rx_bytes_per_sec=rx_rate, tx_bytes_per_sec=tx_rate)
 
 uptime = get_uptime_seconds()
 mem_info = get_memory_info()
 machine_info = get_machine_data()
 network_interfaces = get_network_interfaces()
-print("Uptime: ", format_uptime(uptime))
-print("memory info: ", mem_info)
-print("machine info: ", machine_info)
-print("network interfaces: ", network_interfaces)
+network_route = get_network_route()
+ipv4_addresses = get_ipv4_addresses(network_route.interface)
+network_counters = get_network_counters(network_route.interface)
+
+first_time = time.monotonic()
+previous_counters = get_network_counters(network_route.interface)
+
+time.sleep(1)
+
+current_time = time.monotonic()
+current_counters = get_network_counters(network_route.interface)
+
+elapsed_seconds = current_time - first_time
+
+network_rate = get_network_rate(
+    previous_counters,
+    current_counters,
+    elapsed_seconds,
+)
+
