@@ -46,9 +46,28 @@ class NetworkRate:
     rx_bytes_per_sec: float
     tx_bytes_per_sec: float
 
+@dataclass
+class CpuCounters:
+    user: int
+    nice: int
+    system: int
+    idle: int
+    iowait: int
+    irq: int
+    softirq: int
+    steal: int
+
+@dataclass
+class SocketCounts:
+    tcp_established: int
+    tcp_listening: int
+    udp_sockets: int
+
+CPU_STAT_PATH = Path("/proc/stat")
+
 def format_rate(bytes_per_second: float) -> str:
     if bytes_per_second < 1024:
-        return f"{bytes_per_second} b/s"
+        return f"{bytes_per_second} B/s"
     
     if bytes_per_second < 1024 * 1024:
         return f"{bytes_per_second / 1024} KiB/s"
@@ -154,6 +173,29 @@ def get_network_rate(previous: NetworkCounters, current: NetworkCounters, elapse
     tx_rate = (tx_diff / elapsed_seconds)
     return NetworkRate(rx_bytes_per_sec=rx_rate, tx_bytes_per_sec=tx_rate)
 
+def get_cpu_counters() -> CpuCounters:
+    cpu_columns = CPU_STAT_PATH.read_text().splitlines()
+    cpu_stats = cpu_columns[0].split()
+    cpu_counters = CpuCounters(user=int(cpu_stats[1]), nice=int(cpu_stats[2]), system=int(cpu_stats[3]), idle=int(cpu_stats[4]),iowait=int(cpu_stats[5]), irq=int(cpu_stats[6]), softirq=int(cpu_stats[7]), steal=int(cpu_stats[8]))
+    return cpu_counters
+
+def get_cpu_usage(prev:CpuCounters, current:CpuCounters):
+    prev_total = prev.system + prev.user + prev.nice + prev.idle + prev.iowait + prev.irq + prev.softirq + prev.steal
+    current_total = current.system + current.user + current.nice + current.idle + current.iowait + current.irq + current.softirq + current.steal
+    total_delta = current_total - prev_total
+    prev_none_busy = prev.idle + prev.iowait
+    current_none_busy = current.idle + current.iowait
+    total_none_busy = current_none_busy - prev_none_busy
+    total_used =((total_delta - total_none_busy) / total_delta) * 100
+
+    return total_used
+
+def get_socket_counts() -> SocketCounts:
+    argument_lists = ["ss", "-Htan"]
+    subprocess.run(argument_lists)
+    pass
+
+
 uptime = get_uptime_seconds()
 mem_info = get_memory_info()
 machine_info = get_machine_data()
@@ -164,11 +206,13 @@ network_counters = get_network_counters(network_route.interface)
 
 first_time = time.monotonic()
 previous_counters = get_network_counters(network_route.interface)
+previous_cpu = get_cpu_counters()
 
 time.sleep(1)
 
 current_time = time.monotonic()
 current_counters = get_network_counters(network_route.interface)
+current_cpu = get_cpu_counters()
 
 elapsed_seconds = current_time - first_time
 
@@ -178,3 +222,6 @@ network_rate = get_network_rate(
     elapsed_seconds,
 )
 
+cpu_usage = get_cpu_usage(previous_cpu, current_cpu)
+
+print(cpu_usage)
