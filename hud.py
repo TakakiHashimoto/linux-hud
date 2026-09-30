@@ -5,79 +5,38 @@
 #         ↓
 # use that interpreter
 
-from dataclasses import dataclass
+
 from pathlib import Path
 import os
 import subprocess
 import json
 import time
+from linux_hud.models import (
+    CpuCounters,
+    HudSnapshot,
+    MachineModel,
+    MemoryStats,
+    NetworkCounters,
+    NetworkInterface,
+    NetworkRate,
+    NetworkRoute,
+    SocketCounts,
+)
 
 UPTIME_PATH = Path("/proc/uptime")
 MEMORY_PATH = Path("/proc/meminfo")
 NETWORK_INTERFACE_PATH = Path("/sys/class/net")
 CPU_STAT_PATH = Path("/proc/stat")
 
-@dataclass
-class MemoryStats:
-    total_bytes: int
-    available_bytes: int
-    used_bytes: int
-    usage_percent: float
-    swap_total_bytes: int
-    swap_used_bytes: int
+ENTER_ALT_SCREEN = "\x1b[?1049h"
+EXIT_ALT_SCREEN = "\x1b[?1049l"
 
-@dataclass
-class MachineModel:
-    hostname: str
-    kernel_release: str
-    architecture: str
+HIDE_CURSOR = "\x1b[?25l"
+SHOW_CURSOR = "\x1b[?25h"
 
-@dataclass
-class NetworkInterface:
-    name: str
-    mac_addr: str
-    state: str
-    mtu: int
+HOME = "\x1b[H"
+CLEAR = "\x1b[2J"
 
-@dataclass
-class NetworkRoute:
-    interface: str
-    gateway:str
-
-@dataclass
-class NetworkCounters:
-    rx_bytes: int
-    tx_bytes: int
-
-@dataclass
-class NetworkRate:
-    rx_bytes_per_sec: float
-    tx_bytes_per_sec: float
-
-@dataclass
-class CpuCounters:
-    user: int
-    nice: int
-    system: int
-    idle: int
-    iowait: int
-    irq: int
-    softirq: int
-    steal: int
-
-@dataclass
-class SocketCounts:
-    tcp_established: int
-    tcp_listening: int
-    udp_sockets: int
-
-@dataclass
-class HudSnapshot:
-    uptime_seconds: float
-    memory: MemoryStats
-    cpu_usage_percent: float
-    network_rate: NetworkRate
-    socket_counts: SocketCounts
 
 
 def format_rate(bytes_per_second: float) -> str:
@@ -307,7 +266,7 @@ def render_hud(
 BOX_WIDTH = 60
 def render_line(content: str) -> str:
     inner_width = BOX_WIDTH - 4
-    return f"│ {content:<{inner_width - 2}} │"
+    return f"│ {content:<{inner_width}} │"
 
 def render_top(title: str) -> str:
     label = f" {title} "
@@ -325,62 +284,58 @@ def format_percent_bar(percent: float, width: int = 20) -> str:
     return "█" * filled + "░" * empty
 
 
-machine_info = get_machine_data()
-network_interfaces = get_network_interfaces()
-network_route = get_network_route()
-ipv4_addresses = get_ipv4_addresses(network_route.interface)
+def main():
+    machine_info = get_machine_data()
+    # network_interfaces = get_network_interfaces()
+    network_route = get_network_route()
+    ipv4_addresses = get_ipv4_addresses(network_route.interface)
 
-previous_counters = get_network_counters(network_route.interface)
-previous_cpu = get_cpu_counters()
-previous_time = time.monotonic()
+    previous_counters = get_network_counters(network_route.interface)
+    previous_cpu = get_cpu_counters()
+    previous_time = time.monotonic()
 
-ENTER_ALT_SCREEN = "\x1b[?1049h"
-EXIT_ALT_SCREEN = "\x1b[?1049l"
 
-HIDE_CURSOR = "\x1b[?25l"
-SHOW_CURSOR = "\x1b[?25h"
+    print(ENTER_ALT_SCREEN + HIDE_CURSOR + CLEAR, end="", flush=True)
+    try:
+        while True:
+            time.sleep(1)
 
-HOME = "\x1b[H"
-CLEAR = "\x1b[2J"
+            current_time = time.monotonic()
+            current_counters = get_network_counters(network_route.interface)
+            current_cpu = get_cpu_counters()
 
-print(ENTER_ALT_SCREEN + HIDE_CURSOR + CLEAR, end="", flush=True)
-try:
-    while True:
-        time.sleep(1)
+            elapsed_seconds = current_time - previous_time
 
-        current_time = time.monotonic()
-        current_counters = get_network_counters(network_route.interface)
-        current_cpu = get_cpu_counters()
+            network_rate = get_network_rate(
+                previous_counters,
+                current_counters,
+                elapsed_seconds,
+            )
+            cpu_usage = get_cpu_usage(previous_cpu, current_cpu)
 
-        elapsed_seconds = current_time - previous_time
+            uptime = get_uptime_seconds()
+            mem_info = get_memory_info()
+            socket_counts = get_socket_counts()
 
-        network_rate = get_network_rate(
-            previous_counters,
-            current_counters,
-            elapsed_seconds,
-        )
-        cpu_usage = get_cpu_usage(previous_cpu, current_cpu)
+            snapshot = HudSnapshot(
+                uptime_seconds=uptime,
+                memory=mem_info,
+                cpu_usage_percent=cpu_usage,
+                network_rate=network_rate,
+                socket_counts=socket_counts,
+            )
 
-        uptime = get_uptime_seconds()
-        mem_info = get_memory_info()
-        socket_counts = get_socket_counts()
+            previous_time = current_time
+            previous_counters = current_counters
+            previous_cpu = current_cpu
 
-        snapshot = HudSnapshot(
-            uptime_seconds=uptime,
-            memory=mem_info,
-            cpu_usage_percent=cpu_usage,
-            network_rate=network_rate,
-            socket_counts=socket_counts,
-        )
+            frame = render_hud(snapshot, machine=machine_info, route=network_route, ipv4_addresses=ipv4_addresses)
+            print(HOME + frame, end="", flush=True)
 
-        previous_time = current_time
-        previous_counters = current_counters
-        previous_cpu = current_cpu
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print(SHOW_CURSOR + EXIT_ALT_SCREEN, end="", flush=True)
 
-        frame = render_hud(snapshot, machine=machine_info, route=network_route, ipv4_addresses=ipv4_addresses)
-        print(HOME + frame, end="", flush=True)
-
-except KeyboardInterrupt:
-    pass
-finally:
-    print(SHOW_CURSOR + EXIT_ALT_SCREEN, end="", flush=True)
+if __name__ == "__main__":
+       main()
