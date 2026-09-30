@@ -1,3 +1,10 @@
+#!/usr/bin/env python3
+# execute this file
+#         ↓
+# find python3 using PATH
+#         ↓
+# use that interpreter
+
 from dataclasses import dataclass
 from pathlib import Path
 import os
