@@ -12,9 +12,6 @@ from linux_hud.models import (
     HudSnapshot,
     MachineModel,
     NetworkRoute,
-    NetworkRate,
-    NetworkCounters,
-    CpuCounters
 )
 
 from linux_hud.collectors import (
@@ -28,6 +25,9 @@ from linux_hud.collectors import (
     get_uptime_seconds,
 )
 
+from linux_hud.metrics import get_cpu_usage, get_network_rate
+from linux_hud.formatting import format_percent_bar, format_rate, format_uptime
+
 ENTER_ALT_SCREEN = "\x1b[?1049h"
 EXIT_ALT_SCREEN = "\x1b[?1049l"
 
@@ -36,43 +36,6 @@ SHOW_CURSOR = "\x1b[?25h"
 
 HOME = "\x1b[H"
 CLEAR = "\x1b[2J"
-
-def format_rate(bytes_per_second: float) -> str:
-    if bytes_per_second < 1024:
-        return f"{bytes_per_second:.2f} B/s"
-    
-    if bytes_per_second < 1024 * 1024:
-        return f"{bytes_per_second / 1024:.2f} KiB/s"
-        
-    return f"{bytes_per_second / (1024 * 1024):.2f} MiB/s"
-
-def format_uptime(seconds:float) -> str:
-    minutes = int(seconds) // 60
-    remaining_seconds = int(seconds) % 60
-    hours = minutes // 60
-    real_minute = minutes % 60
-
-    return f"{hours}h {real_minute}m {remaining_seconds}s"
-
-
-def get_network_rate(previous: NetworkCounters, current: NetworkCounters, elapsed_seconds: float) -> NetworkRate:
-    rx_diff =  current.rx_bytes - previous.rx_bytes
-    tx_diff = current.tx_bytes - previous.tx_bytes
-
-    rx_rate = (rx_diff / elapsed_seconds)
-    tx_rate = (tx_diff / elapsed_seconds)
-    return NetworkRate(rx_bytes_per_sec=rx_rate, tx_bytes_per_sec=tx_rate)
-
-def get_cpu_usage(prev:CpuCounters, current:CpuCounters):
-    prev_total = prev.system + prev.user + prev.nice + prev.idle + prev.iowait + prev.irq + prev.softirq + prev.steal
-    current_total = current.system + current.user + current.nice + current.idle + current.iowait + current.irq + current.softirq + current.steal
-    total_delta = current_total - prev_total
-    prev_none_busy = prev.idle + prev.iowait
-    current_none_busy = current.idle + current.iowait
-    total_none_busy = current_none_busy - prev_none_busy
-    total_used =((total_delta - total_none_busy) / total_delta) * 100
-
-    return total_used
 
 def render_hud(
     snapshot: HudSnapshot,
@@ -151,15 +114,6 @@ def render_top(title: str) -> str:
 
 def render_bottom() -> str:
     return f"└{'─' * (BOX_WIDTH - 2)}┘"
-
-def format_percent_bar(percent: float, width: int = 20) -> str:
-    percent = max(0.0, min(percent, 100.0))
-
-    filled = int((percent / 100) * width)
-    empty = width - filled
-
-    return "█" * filled + "░" * empty
-
 
 def main():
     machine_info = get_machine_data()

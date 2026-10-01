@@ -17,7 +17,6 @@ MEMORY_PATH = Path("/proc/meminfo")
 NETWORK_INTERFACE_PATH = Path("/sys/class/net")
 CPU_STAT_PATH = Path("/proc/stat")
 
-
 def get_uptime_seconds() -> float:
     raw = UPTIME_PATH.read_text().strip()
     uptime_text, _ = raw.split()
@@ -100,14 +99,11 @@ def get_network_counters(interface: str) -> NetworkCounters:
     tx = (path / "tx_bytes").read_text().strip()
     return NetworkCounters(rx_bytes=int(rx), tx_bytes=int(tx))
 
-
-
 def get_cpu_counters() -> CpuCounters:
     cpu_columns = CPU_STAT_PATH.read_text().splitlines()
     cpu_stats = cpu_columns[0].split()
     cpu_counters = CpuCounters(user=int(cpu_stats[1]), nice=int(cpu_stats[2]), system=int(cpu_stats[3]), idle=int(cpu_stats[4]),iowait=int(cpu_stats[5]), irq=int(cpu_stats[6]), softirq=int(cpu_stats[7]), steal=int(cpu_stats[8]))
     return cpu_counters
-
 
 def get_socket_counts() -> SocketCounts:
     counts = {"tcp_established" : 0, "tcp_listening" : 0, "udp_sockets" : 0}
