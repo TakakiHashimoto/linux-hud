@@ -6,10 +6,31 @@ build-backend = "setuptools.build_meta"
 name = "linux-hud"
 version = "0.1.0"
 description = "A lightweight Linux machine and network terminal HUD"
+readme = "README.md"
 requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+authors = [
+    { name = "Takaki Hashimoto" }
+]
+
+keywords = [
+    "linux",
+    "monitoring",
+    "terminal",
+    "system-monitor",
+    "network-monitoring"
+]
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX :: Linux",
+    "Environment :: Console",
+]
 
 [project.scripts]
 linux-hud = "linux_hud.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
